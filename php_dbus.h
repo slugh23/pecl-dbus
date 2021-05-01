@@ -27,7 +27,7 @@
 
 #include "Zend/zend_hash.h"
 
-#define PHP_DBUS_VERSION "0.2.0"
+#define PHP_DBUS_VERSION "0.2.1"
 
 # define DBUS_ZEND_OBJECT_PROPERTIES_INIT(_objPtr, _ce) \
     object_properties_init(&_objPtr->std, _ce); \
@@ -154,6 +154,9 @@ PHP_METHOD(Dbus, createProxy);
 
 PHP_METHOD(DbusObject, __construct);
 PHP_METHOD(DbusObject, __call);
+PHP_METHOD(DbusObject, __get);
+//PHP_METHOD(DbusObject, __set);
+
 PHP_METHOD(DbusSignal, __construct);
 PHP_METHOD(DbusSignal, matches);
 PHP_METHOD(DbusSignal, getData);

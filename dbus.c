@@ -43,6 +43,17 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_dbus_object___call, 0, 0, 2)
 	ZEND_ARG_INFO(0, function_name)
 	ZEND_ARG_INFO(0, arguments)
 ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_dbus_object___get, 0, 0, 1)
+	ZEND_ARG_INFO(0, property_name)
+ZEND_END_ARG_INFO()
+
+#ifdef DORK
+ZEND_BEGIN_ARG_INFO_EX(arginfo_dbus_object___set, 0, 0, 2)
+	ZEND_ARG_INFO(0, property_name)
+	ZEND_ARG_INFO(0, value)
+ZEND_END_ARG_INFO()
+#endif
 /* }}} */
 
 const zend_function_entry dbus_funcs_dbus[] = {
@@ -58,6 +69,10 @@ const zend_function_entry dbus_funcs_dbus[] = {
 const zend_function_entry dbus_funcs_dbus_object[] = {
 	PHP_ME(DbusObject, __construct, NULL, ZEND_ACC_CTOR|ZEND_ACC_PRIVATE)
 	PHP_ME(DbusObject, __call,      arginfo_dbus_object___call, ZEND_ACC_PUBLIC)
+	PHP_ME(DbusObject, __get,       arginfo_dbus_object___get, ZEND_ACC_PUBLIC)
+#ifdef DORK
+	PHP_ME(DbusObject, __set,       arginfo_dbus_object___set, ZEND_ACC_PUBLIC)
+#endif
 	PHP_FE_END
 };
 
@@ -1815,6 +1830,140 @@ PHP_METHOD(DbusObject, __call)
 		dbus_pending_call_unref(pending);
 	}
 }
+
+PHP_METHOD(DbusObject, __get)
+{
+	char *name;
+	size_t name_len;
+	zval *object;
+	php_dbus_object_obj *dbus_object;
+	DBusMessage *msg;
+	DBusMessageIter iter;
+	//DBusMessageIter subiter;
+	DBusPendingCall* pending;
+	int arg_type = 0;
+
+
+	if (FAILURE == zend_parse_method_parameters(ZEND_NUM_ARGS() TSRMLS_CC, getThis(),
+		"Os", &object, dbus_ce_dbus_object, &name, &name_len)) {
+		RETURN_FALSE;
+	}
+	DBUS_ZEND_GET_ZVAL_OBJECT(object, dbus_object, php_dbus_object_obj);
+
+	dbus_set_error_handling(EH_THROW, NULL TSRMLS_CC);
+
+	//msg = dbus_message_new_method_call(dbus_object->destination, dbus_object->path, dbus_object->interface, name);
+	msg = dbus_message_new_method_call(dbus_object->destination, dbus_object->path, "org.freedesktop.DBus.Properties", "Get");
+	//php_dbus_append_parameters(msg, data, dbus_object->introspect_xml ? php_dbus_find_method_node(dbus_object->introspect_xml->children, name) : NULL, PHP_DBUS_CALL_FUNCTION TSRMLS_CC);
+	dbus_message_iter_init_append(msg, &iter);
+	dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &dbus_object->interface);
+	dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &name);
+
+	/* send message and get a handle for a reply */
+	if (!dbus_connection_send_with_reply(dbus_object->dbus->con, msg, &pending, -1)) {
+		dbus_message_unref(msg);
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Out of memory.");
+	}
+
+	if (NULL == pending) { 
+		dbus_message_unref(msg);
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Pending call null.");
+	}
+	dbus_connection_flush(dbus_object->dbus->con);
+
+	/* free message */
+	dbus_message_unref(msg);
+
+	/* block until we recieve a reply */
+	dbus_pending_call_block(pending);
+
+	/* get the reply message */
+	msg = dbus_pending_call_steal_reply(pending);
+
+	dbus_set_error_handling(EH_NORMAL, NULL TSRMLS_CC);
+
+	if (msg == NULL) {
+		dbus_pending_call_unref(pending);
+		RETURN_NULL();
+	} else {
+		if (!dbus_message_iter_init(msg, &iter)) {
+			php_error_docref(NULL TSRMLS_CC, E_WARNING, "%s", dbus_message_get_error_name(msg));
+			RETURN_NULL();
+		}
+		arg_type = dbus_message_iter_get_arg_type(&iter);
+		if (arg_type == DBUS_TYPE_VARIANT) {
+			zval vnt;
+			php_dbus_variant_obj *variantobj;
+			
+			php_dbus_handle_reply(&vnt, msg, 0 TSRMLS_CC);
+			DBUS_ZEND_GET_ZVAL_OBJECT(&vnt, variantobj, php_dbus_variant_obj);
+
+			/* unpack the variant */
+			*return_value = *variantobj->data;
+			zval_copy_ctor(return_value);
+		} else {
+			php_dbus_handle_reply(return_value, msg, 0 TSRMLS_CC);
+		}
+		dbus_message_unref(msg);   
+		dbus_pending_call_unref(pending);
+	}
+}
+
+#ifdef DORKDOOF
+PHP_METHOD(DbusObject, __set)
+{
+	char *name;
+	size_t name_len;
+	zval *data;
+	zval *object;
+	php_dbus_object_obj *dbus_object;
+	DBusMessage *msg;
+	DBusPendingCall* pending;
+
+	if (FAILURE == zend_parse_method_parameters(ZEND_NUM_ARGS() TSRMLS_CC, getThis(),
+		"Osz", &object, dbus_ce_dbus_object, &name, &name_len, &data)) {
+		RETURN_FALSE;
+	}
+	DBUS_ZEND_GET_ZVAL_OBJECT(object, dbus_object, php_dbus_object_obj);
+
+	dbus_set_error_handling(EH_THROW, NULL TSRMLS_CC);
+
+	msg = dbus_message_new_method_call(dbus_object->destination, dbus_object->path, dbus_object->interface, name);
+	php_dbus_append_parameters(msg, data, dbus_object->introspect_xml ? php_dbus_find_method_node(dbus_object->introspect_xml->children, name) : NULL, PHP_DBUS_CALL_FUNCTION TSRMLS_CC);
+
+	/* send message and get a handle for a reply */
+	if (!dbus_connection_send_with_reply(dbus_object->dbus->con, msg, &pending, -1)) {
+		dbus_message_unref(msg);
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Out of memory.");
+	}
+
+	if (NULL == pending) { 
+		dbus_message_unref(msg);
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Pending call null.");
+	}
+	dbus_connection_flush(dbus_object->dbus->con);
+
+	/* free message */
+	dbus_message_unref(msg);
+
+	/* block until we recieve a reply */
+	dbus_pending_call_block(pending);
+
+	/* get the reply message */
+	msg = dbus_pending_call_steal_reply(pending);
+
+	dbus_set_error_handling(EH_NORMAL, NULL TSRMLS_CC);
+
+	if (msg == NULL) {
+		dbus_pending_call_unref(pending);
+		RETURN_NULL();
+	} else {
+		php_dbus_handle_reply(return_value, msg, 0 TSRMLS_CC);
+		dbus_message_unref(msg);   
+		dbus_pending_call_unref(pending);
+	}
+}
+#endif
 
 PHP_METHOD(Dbus, addWatch)
 {
