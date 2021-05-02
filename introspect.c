@@ -76,6 +76,37 @@ xmlNode *php_dbus_find_interface_node(xmlDocPtr doc, char *interface)
 	return NULL;
 }
 
+xmlNode *php_dbus_find_property_node(xmlNode *root, char *property)
+{
+	xmlNode *propertyNode;
+
+	do {
+		propertyNode = php_dbus_find_element_by_attribute(root, "property", "name", property);
+		if (propertyNode) {
+			return propertyNode;
+		}
+	} while((root = root->next));
+	return NULL;
+}
+
+char *php_dbus_property_type(xmlNode *root, char **access)
+{
+	char *type = NULL;
+	xmlAttr *attrs = root->properties;
+	do {
+		if (attrs->type == XML_ATTRIBUTE_NODE && strcmp((char*) attrs->name, "type") == 0
+			&& attrs->children->type == XML_TEXT_NODE)
+		{
+			type = (char*) attrs->children->content;
+		} else if (attrs->type == XML_ATTRIBUTE_NODE && strcmp((char*) attrs->name, "access") == 0
+			&& attrs->children->type == XML_TEXT_NODE)
+		{
+			*access = (char*) attrs->children->content;
+		}
+	} while((attrs = attrs->next));
+	return type;
+}
+
 xmlNode *php_dbus_find_method_node(xmlNode *root, char *method)
 {
 	xmlNode *methodNode;
@@ -118,9 +149,12 @@ int main(void)
 {
 	xmlParserCtxtPtr ctxt;
 	xmlDocPtr  doc;
-	xmlNode   *interfaceNode, *methodNode, *args, **it;
+	xmlNode   *interfaceNode, *methodNode, *propertyNode, *args, **it;
 	int i = 0;
 	char *sig;
+
+	printf("long type is %d bytes\n", sizeof(long));
+	printf("long long type is %d bytes\n", sizeof(long long));
 
 	doc = xmlParseFile("examples/introspect.xml");
 	interfaceNode = php_dbus_find_interface_node(doc, "org.freedesktop.Notifications");
@@ -135,6 +169,11 @@ int main(void)
 	while (it = php_dbus_get_next_sig(it, &sig)) {
 		printf("sig: '%s'\n", sig);
 	}
+
+	propertyNode = php_dbus_find_property_node(interfaceNode->children, "Dork");
+	char* access;
+	char* type = php_dbus_property_type(propertyNode, &access);
+	printf("type: %s, access: %s\n", type, access);
 	xmlFreeDoc(doc);
 }
 #endif
