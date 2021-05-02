@@ -48,12 +48,10 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_dbus_object___get, 0, 0, 1)
 	ZEND_ARG_INFO(0, property_name)
 ZEND_END_ARG_INFO()
 
-#ifdef DORK
 ZEND_BEGIN_ARG_INFO_EX(arginfo_dbus_object___set, 0, 0, 2)
 	ZEND_ARG_INFO(0, property_name)
 	ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
-#endif
 /* }}} */
 
 const zend_function_entry dbus_funcs_dbus[] = {
@@ -69,10 +67,8 @@ const zend_function_entry dbus_funcs_dbus[] = {
 const zend_function_entry dbus_funcs_dbus_object[] = {
 	PHP_ME(DbusObject, __construct, NULL, ZEND_ACC_CTOR|ZEND_ACC_PRIVATE)
 	PHP_ME(DbusObject, __call,      arginfo_dbus_object___call, ZEND_ACC_PUBLIC)
-	PHP_ME(DbusObject, __get,       arginfo_dbus_object___get, ZEND_ACC_PUBLIC)
-#ifdef DORK
-	PHP_ME(DbusObject, __set,       arginfo_dbus_object___set, ZEND_ACC_PUBLIC)
-#endif
+	PHP_ME(DbusObject, __get,       arginfo_dbus_object___get,  ZEND_ACC_PUBLIC)
+	PHP_ME(DbusObject, __set,         arginfo_dbus_object___set,  ZEND_ACC_PUBLIC)
 	PHP_FE_END
 };
 
@@ -138,6 +134,7 @@ const zend_function_entry dbus_funcs_dbus_object_path[] = {
 
 #define PHP_DBUS_CALL_FUNCTION     1
 #define PHP_DBUS_RETURN_FUNCTION   2
+#define PHP_DBUS_SET_PROPERTY      3
 
 static void dbus_register_classes(TSRMLS_D);
 static zval * dbus_instantiate(zend_class_entry *pce, zval *object TSRMLS_DC);
@@ -1464,10 +1461,47 @@ static int dbus_append_var(zval **val, DBusMessageIter *iter, char *type_hint TS
 			long lval = Z_LVAL_P(*val);
 			switch (type)
 			{
+				case 'y':
+					{
+					char v = (char)lval;
+					dbus_message_iter_append_basic(iter, DBUS_TYPE_BYTE, &v);
+					}
+					break;
+				case 'b':
+					dbus_message_iter_append_basic(iter, DBUS_TYPE_BOOLEAN, &lval);
+					break;
+				case 'n':
+					{
+					short v = (short)lval;
+					dbus_message_iter_append_basic(iter, DBUS_TYPE_INT16, &v);
+					}
+					break;
+				case 'q':
+					{
+					unsigned short v = (unsigned short)lval;
+					dbus_message_iter_append_basic(iter, DBUS_TYPE_UINT16, &v);
+					}
+					break;
 				case 'u':
-					dbus_message_iter_append_basic(iter, DBUS_TYPE_UINT32, &lval);
+					{
+					long v = (long)lval;
+					dbus_message_iter_append_basic(iter, DBUS_TYPE_UINT32, &v);
+					}
+					break;
+				case 'x':
+					{
+					long long v = (long long)lval;
+					dbus_message_iter_append_basic(iter, DBUS_TYPE_INT64, &lval);
+					}
+					break;
+				case 't':
+					{
+					unsigned long long v = (unsigned long long)lval;
+					dbus_message_iter_append_basic(iter, DBUS_TYPE_UINT64, &lval);
+					}
 					break;
 
+				case 'i':
 				default:
 					dbus_message_iter_append_basic(iter, DBUS_TYPE_INT32, &lval);
 			}
@@ -1553,6 +1587,14 @@ static int php_dbus_append_parameters(DBusMessage *msg, zval *data, xmlNode *inX
 		}
 	} else if (type == PHP_DBUS_RETURN_FUNCTION) {
 		dbus_append_var(&data, &dbus_args, NULL TSRMLS_CC);
+	} else if (type == PHP_DBUS_SET_PROPERTY) {
+		DBusMessageIter variant;
+		char* access;
+		char* type = inXml ? php_dbus_property_type(inXml, &access) : NULL;
+
+		dbus_message_iter_open_container(&dbus_args, DBUS_TYPE_VARIANT, type, &variant );
+		dbus_append_var(&data, &dbus_args, type TSRMLS_CC);
+		dbus_message_iter_close_container(&dbus_args, &variant);
 	}
 
 	return 1;
@@ -1839,10 +1881,8 @@ PHP_METHOD(DbusObject, __get)
 	php_dbus_object_obj *dbus_object;
 	DBusMessage *msg;
 	DBusMessageIter iter;
-	//DBusMessageIter subiter;
 	DBusPendingCall* pending;
 	int arg_type = 0;
-
 
 	if (FAILURE == zend_parse_method_parameters(ZEND_NUM_ARGS() TSRMLS_CC, getThis(),
 		"Os", &object, dbus_ce_dbus_object, &name, &name_len)) {
@@ -1909,7 +1949,8 @@ PHP_METHOD(DbusObject, __get)
 	}
 }
 
-#ifdef DORKDOOF
+//dbus-send --system --print-reply --dest=org.sdbuscpp.concatenator /org/sdbuscpp/concatenator org.freedesktop.DBus.Properties.Set string:"org.sdbuscpp.Concatenator" string:"Frank" variant:string:"This is a test"
+
 PHP_METHOD(DbusObject, __set)
 {
 	char *name;
@@ -1918,6 +1959,7 @@ PHP_METHOD(DbusObject, __set)
 	zval *object;
 	php_dbus_object_obj *dbus_object;
 	DBusMessage *msg;
+	DBusMessageIter iter;
 	DBusPendingCall* pending;
 
 	if (FAILURE == zend_parse_method_parameters(ZEND_NUM_ARGS() TSRMLS_CC, getThis(),
@@ -1928,8 +1970,14 @@ PHP_METHOD(DbusObject, __set)
 
 	dbus_set_error_handling(EH_THROW, NULL TSRMLS_CC);
 
-	msg = dbus_message_new_method_call(dbus_object->destination, dbus_object->path, dbus_object->interface, name);
-	php_dbus_append_parameters(msg, data, dbus_object->introspect_xml ? php_dbus_find_method_node(dbus_object->introspect_xml->children, name) : NULL, PHP_DBUS_CALL_FUNCTION TSRMLS_CC);
+	//msg = dbus_message_new_method_call(dbus_object->destination, dbus_object->path, dbus_object->interface, name);
+	msg = dbus_message_new_method_call(dbus_object->destination, dbus_object->path, "org.freedesktop.DBus.Properties", "Set");
+
+	dbus_message_iter_init_append(msg, &iter);
+	dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &dbus_object->interface);
+	dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &name);
+
+	php_dbus_append_parameters(msg, data, dbus_object->introspect_xml ? php_dbus_find_property_node(dbus_object->introspect_xml->children, name) : NULL, PHP_DBUS_SET_PROPERTY TSRMLS_CC);
 
 	/* send message and get a handle for a reply */
 	if (!dbus_connection_send_with_reply(dbus_object->dbus->con, msg, &pending, -1)) {
@@ -1954,16 +2002,11 @@ PHP_METHOD(DbusObject, __set)
 
 	dbus_set_error_handling(EH_NORMAL, NULL TSRMLS_CC);
 
-	if (msg == NULL) {
-		dbus_pending_call_unref(pending);
-		RETURN_NULL();
-	} else {
-		php_dbus_handle_reply(return_value, msg, 0 TSRMLS_CC);
+	if (msg != NULL) {
 		dbus_message_unref(msg);   
-		dbus_pending_call_unref(pending);
 	}
+	dbus_pending_call_unref(pending);
 }
-#endif
 
 PHP_METHOD(Dbus, addWatch)
 {
