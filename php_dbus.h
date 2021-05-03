@@ -156,6 +156,7 @@ PHP_METHOD(DbusObject, __construct);
 PHP_METHOD(DbusObject, __call);
 PHP_METHOD(DbusObject, __get);
 PHP_METHOD(DbusObject, __set);
+//PHP_METHOD(DbusObject, __isset);
 
 PHP_METHOD(DbusSignal, __construct);
 PHP_METHOD(DbusSignal, matches);
